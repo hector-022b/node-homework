@@ -5,6 +5,9 @@ const userRouter = require("./routes/userRoutes");
 const notFound = require("./middleware/not-found");
 const errorHandler = require("./middleware/error-handler");
 
+const authMiddleware = require("./middleware/auth");
+const taskRouter = require("./routes/taskRoutes");
+
 const app = express();
 
 // Temporary in-memory storage
@@ -18,6 +21,7 @@ app.use(express.json());
 // Register routes
 app.use("/api", timeRouter);
 app.use("/api/users", userRouter);
+app.use("/api/tasks", authMiddleware, taskRouter);
 
 // The previous assignment's routes
 app.get("/", (req, res) => {
