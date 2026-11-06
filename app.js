@@ -10,10 +10,10 @@ const taskRouter = require("./routes/taskRoutes");
 
 const app = express();
 
-// Temporary in-memory storage
+const pool = require("./db/pg-pool");
+
+// Temporary logged-in user ID
 global.user_id = null;
-global.users = [];
-global.tasks = [];
 
 // Parse JSON request bodies
 app.use(express.json());
@@ -34,6 +34,17 @@ app.post("/testpost", (req, res) => {
   });
 });
 
+app.get("/health", async (req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.json({ status: "ok", db: "connected" });
+  } catch (err) {
+    res.status(500).json({
+      message: `db not connected, error: ${err.message}`,
+    });
+  }
+});
+
 // Middleware must go after all routes
 app.use(notFound);
 app.use(errorHandler);
@@ -43,5 +54,36 @@ const port = process.env.PORT || 3000;
 const server = app.listen(port, () => {
   console.log(`Server is listening on port ${port}...`);
 });
+
+let isShuttingDown = false;
+
+async function shutdown(code = 0) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  console.log("Shutting down gracefully...");
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+
+    console.log("HTTP server closed.");
+
+    await pool.end();
+    console.log("PostgreSQL connection pool closed.");
+  } catch (err) {
+    console.error("Error during shutdown:", err);
+    code = 1;
+  } finally {
+    process.exit(code);
+  }
+}
+
+process.on("SIGINT", () => shutdown(0));
+process.on("SIGTERM", () => shutdown(0));
 
 module.exports = { app, server };
