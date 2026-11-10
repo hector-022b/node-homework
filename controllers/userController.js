@@ -2,7 +2,7 @@
 const crypto = require("crypto");
 const util = require("util");
 const { userSchema } = require("../validation/userSchema");
-const pool = require("../db/pg-pool");
+const prisma = require("../db/prisma");
 
 const scrypt = util.promisify(crypto.scrypt);
 
@@ -39,14 +39,18 @@ async function register(req, res, next) {
   try {
     const hashedPassword = await hashPassword(value.password);
 
-    const result = await pool.query(
-      `INSERT INTO users (email, name, hashed_password)
-       VALUES ($1, $2, $3)
-       RETURNING id, email, name`,
-      [value.email, value.name, hashedPassword]
-    );
-
-    const user = result.rows[0];
+    const user = await prisma.user.create({
+      data: {
+        email: value.email,
+        name: value.name,
+        hashedPassword,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+      },
+    });
 
     global.user_id = user.id;
 
@@ -55,7 +59,7 @@ async function register(req, res, next) {
       email: user.email,
     });
   } catch (err) {
-    if (err.code === "23505") {
+    if (err.code === "P2002") {
       return res.status(400).json({
         message: "User already exists.",
       });
@@ -76,12 +80,11 @@ async function logon(req, res, next) {
       });
     }
 
-    const result = await pool.query(
-      "SELECT * FROM users WHERE email = $1",
-      [email.trim().toLowerCase()]
-    );
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const user = result.rows[0];
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
 
     if (!user) {
       return res.status(401).json({
@@ -91,7 +94,7 @@ async function logon(req, res, next) {
 
     const goodCredentials = await comparePassword(
       password,
-      user.hashed_password
+      user.hashedPassword
     );
 
     if (!goodCredentials) {
