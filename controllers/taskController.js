@@ -112,13 +112,6 @@ async function index(req, res, next) {
       },
     });
 
-    // Preserve Assignment 6 behavior when no tasks match
-    if (userTasks.length === 0) {
-      return res.status(404).json({
-        message: "No tasks found.",
-      });
-    }
-
     const totalTasks = await prisma.task.count({
       where: whereClause,
     });
