@@ -23,7 +23,8 @@ async function comparePassword(inputPassword, storedHash) {
   return crypto.timingSafeEqual(keyBuffer, derivedKey);
 }
 
-// Register a user
+
+ // Register a user and create three welcome tasks
 async function register(req, res, next) {
   const { error, value } = userSchema.validate(req.body || {}, {
     abortEarly: false,
@@ -37,37 +38,91 @@ async function register(req, res, next) {
   }
 
   try {
+    // Hash the password before starting the transaction
     const hashedPassword = await hashPassword(value.password);
 
-    const user = await prisma.user.create({
-      data: {
-        email: value.email,
-        name: value.name,
-        hashedPassword,
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-      },
+    // Both operations must succeed, or neither is saved
+    const result = await prisma.$transaction(async (tx) => {
+      // Create the new user
+      const newUser = await tx.user.create({
+        data: {
+          email: value.email,
+          name: value.name,
+          hashedPassword,
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+        },
+      });
+
+      // Prepare three welcome tasks
+      const welcomeTaskData = [
+        {
+          title: "Complete your profile",
+          userId: newUser.id,
+          priority: "medium",
+        },
+        {
+          title: "Add your first task",
+          userId: newUser.id,
+          priority: "high",
+        },
+        {
+          title: "Explore the app",
+          userId: newUser.id,
+          priority: "low",
+        },
+      ];
+
+      // Insert all three tasks in one operation
+      await tx.task.createMany({
+        data: welcomeTaskData,
+      });
+
+      // Retrieve the created tasks
+      const welcomeTasks = await tx.task.findMany({
+        where: {
+          userId: newUser.id,
+          title: {
+            in: welcomeTaskData.map((task) => task.title),
+          },
+        },
+        select: {
+          id: true,
+          title: true,
+          isCompleted: true,
+          userId: true,
+          priority: true,
+        },
+      });
+
+      return {
+        user: newUser,
+        welcomeTasks,
+      };
     });
 
-    global.user_id = user.id;
+    // Log in only after the transaction succeeds
+    global.user_id = result.user.id;
 
     return res.status(201).json({
-      name: user.name,
-      email: user.email,
+      user: result.user,
+      welcomeTasks: result.welcomeTasks,
+      transactionStatus: "success",
     });
   } catch (err) {
     if (err.code === "P2002") {
       return res.status(400).json({
-        message: "User already exists.",
+        error: "Email already registered",
       });
     }
 
     return next(err);
   }
 }
+
 
 // Log on
 async function logon(req, res, next) {
