@@ -1,10 +1,35 @@
-
 const crypto = require("crypto");
 const util = require("util");
+const jwt = require("jsonwebtoken");
+const { randomUUID } = require("crypto");
 const { userSchema } = require("../validation/userSchema");
 const prisma = require("../db/prisma");
 
 const scrypt = util.promisify(crypto.scrypt);
+
+// JWT cookie configuration
+const cookieFlags = (req) => {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "Strict",
+  };
+};
+
+const setJwtCookie = (req, res, user) => {
+  const payload = { id: user.id, csrfToken: randomUUID() };
+
+  const token = jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: "1h",
+  });
+
+  res.cookie("jwt", token, {
+    ...cookieFlags(req),
+    maxAge: 3600000,
+  });
+
+  return payload.csrfToken;
+};
 
 // Hash passwords before storing them
 async function hashPassword(password) {
@@ -23,8 +48,7 @@ async function comparePassword(inputPassword, storedHash) {
   return crypto.timingSafeEqual(keyBuffer, derivedKey);
 }
 
-
- // Register a user and create three welcome tasks
+// Register a user and create three welcome tasks
 async function register(req, res, next) {
   const { error, value } = userSchema.validate(req.body || {}, {
     abortEarly: false,
@@ -38,12 +62,9 @@ async function register(req, res, next) {
   }
 
   try {
-    // Hash the password before starting the transaction
     const hashedPassword = await hashPassword(value.password);
 
-    // Both operations must succeed, or neither is saved
     const result = await prisma.$transaction(async (tx) => {
-      // Create the new user
       const newUser = await tx.user.create({
         data: {
           email: value.email,
@@ -57,7 +78,6 @@ async function register(req, res, next) {
         },
       });
 
-      // Prepare three welcome tasks
       const welcomeTaskData = [
         {
           title: "Complete your profile",
@@ -76,12 +96,10 @@ async function register(req, res, next) {
         },
       ];
 
-      // Insert all three tasks in one operation
       await tx.task.createMany({
         data: welcomeTaskData,
       });
 
-      // Retrieve the created tasks
       const welcomeTasks = await tx.task.findMany({
         where: {
           userId: newUser.id,
@@ -104,12 +122,12 @@ async function register(req, res, next) {
       };
     });
 
-    // Log in only after the transaction succeeds
-    global.user_id = result.user.id;
+    const csrfToken = setJwtCookie(req, res, result.user);
 
     return res.status(201).json({
       user: result.user,
       welcomeTasks: result.welcomeTasks,
+      csrfToken,
       transactionStatus: "success",
     });
   } catch (err) {
@@ -122,7 +140,6 @@ async function register(req, res, next) {
     return next(err);
   }
 }
-
 
 // Log on
 async function logon(req, res, next) {
@@ -149,7 +166,7 @@ async function logon(req, res, next) {
 
     const goodCredentials = await comparePassword(
       password,
-      user.hashedPassword
+      user.hashedPassword,
     );
 
     if (!goodCredentials) {
@@ -158,11 +175,12 @@ async function logon(req, res, next) {
       });
     }
 
-    global.user_id = user.id;
+    const csrfToken = setJwtCookie(req, res, user);
 
     return res.status(200).json({
       name: user.name,
       email: user.email,
+      csrfToken,
     });
   } catch (err) {
     return next(err);
@@ -171,7 +189,7 @@ async function logon(req, res, next) {
 
 // Log off
 function logoff(req, res) {
-  global.user_id = null;
+  res.clearCookie("jwt", cookieFlags(req));
 
   return res.status(200).json({
     message: "Logged off successfully.",

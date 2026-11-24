@@ -1,12 +1,15 @@
-
 const express = require("express");
+const cookieParser = require("cookie-parser");
+const helmet = require("helmet");
+const { xss } = require("express-xss-sanitizer");
+const rateLimiter = require("express-rate-limit");
 
 const timeRouter = require("./routes/timeRoutes");
 const userRouter = require("./routes/userRoutes");
 const notFound = require("./middleware/not-found");
 const errorHandler = require("./middleware/error-handler");
 
-const authMiddleware = require("./middleware/auth");
+const jwtMiddleware = require("./middleware/jwtMiddleware");
 const taskRouter = require("./routes/taskRoutes");
 const analyticsRouter = require("./routes/analyticsRoutes");
 
@@ -14,19 +17,30 @@ const app = express();
 
 const prisma = require("./db/prisma");
 
-// Temporary logged-in user ID
-global.user_id = null;
+app.set("trust proxy", 1);
 
-// Parse JSON request bodies
+// Rate limiting
+app.use(
+  rateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+  }),
+);
+
+app.use(helmet());
+
+// Parse request bodies and cookies
 app.use(express.json());
+app.use(cookieParser());
+app.use(xss());
 
 // Register routes
 app.use("/api", timeRouter);
 app.use("/api/users", userRouter);
-app.use("/api/tasks", authMiddleware, taskRouter);
-app.use("/api/analytics", authMiddleware, analyticsRouter);
+app.use("/api/tasks", jwtMiddleware, taskRouter);
+app.use("/api/analytics", jwtMiddleware, analyticsRouter);
 
-// The previous assignment's routes
+// Previous assignment's routes
 app.get("/", (req, res) => {
   res.send("Hello, World!");
 });
