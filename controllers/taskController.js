@@ -1,4 +1,3 @@
-
 const { taskSchema, patchTaskSchema } = require("../validation/taskSchema");
 const prisma = require("../db/prisma");
 
@@ -33,7 +32,7 @@ async function create(req, res, next) {
         title: value.title,
         isCompleted: value.isCompleted,
         priority: value.priority,
-        userId: global.user_id,
+        userId: req.user.id,
       },
       select: {
         id: true,
@@ -46,12 +45,6 @@ async function create(req, res, next) {
 
     return res.status(201).json(task);
   } catch (err) {
-    if (err.code === "P2003") {
-      return res.status(400).json({
-        message: "Invalid user reference.",
-      });
-    }
-
     if (typeof next === "function") {
       return next(err);
     }
@@ -85,7 +78,7 @@ async function index(req, res, next) {
     const skip = (page - 1) * limit;
 
     const whereClause = {
-      userId: global.user_id,
+      userId: req.user.id,
     };
 
     // Optional case-insensitive title search
@@ -148,7 +141,7 @@ async function show(req, res, next) {
     const task = await prisma.task.findUnique({
       where: {
         id: taskId,
-        userId: global.user_id,
+        userId: req.user.id,
       },
       select: taskSelect,
     });
@@ -187,7 +180,7 @@ async function update(req, res, next) {
     const task = await prisma.task.update({
       where: {
         id: taskId,
-        userId: global.user_id,
+        userId: req.user.id,
       },
       data: value,
       select: {
@@ -225,7 +218,7 @@ async function deleteTask(req, res, next) {
     const deletedTask = await prisma.task.delete({
       where: {
         id: taskId,
-        userId: global.user_id,
+        userId: req.user.id,
       },
       select: {
         id: true,
@@ -275,7 +268,7 @@ async function bulkCreate(req, res, next) {
       title: value.title,
       isCompleted: value.isCompleted,
       priority: value.priority,
-      userId: global.user_id,
+      userId: req.user.id,
     });
   }
 

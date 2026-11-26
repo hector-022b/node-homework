@@ -1,28 +1,10 @@
-
 const prisma = require("../db/prisma");
 
-// Get analytics for a specific user
+// Get analytics for the authenticated user
 async function getUserAnalytics(req, res, next) {
-  const userId = Number(req.params.id);
-
-  if (!Number.isInteger(userId) || userId <= 0) {
-    return res.status(400).json({
-      error: "Invalid user ID",
-    });
-  }
+  const userId = req.user.id;
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true },
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        error: "User not found",
-      });
-    }
-
     const taskStats = await prisma.task.groupBy({
       by: ["isCompleted"],
       where: { userId },
